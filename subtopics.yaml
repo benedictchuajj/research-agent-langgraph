@@ -1,0 +1,29 @@
+agents:
+  keywords: [agent, autonomous agent, llm agent, agentic, ai agent]
+
+multi-agent:
+  keywords: [multi-agent, multiagent, agent collaboration, debate, agent communication, agent coordination]
+
+planning:
+  keywords: [planning, task planning, self-refine, plan generation, hierarchical planning]
+
+reasoning:
+  keywords: [reasoning, chain-of-thought, cot, self-consistency, step-by-step, logical reasoning]
+
+tool-use:
+  keywords: [tool use, tool calling, function calling, api, tool learning, tool augmented]
+
+rag:
+  keywords: [retrieval augmented, rag, dense retrieval, retrieval-augmented generation, knowledge retrieval]
+
+summarization:
+  keywords: [summarization, summary, abstractive, extractive, document compression]
+
+code-generation:
+  keywords: [code generation, code synthesis, programming, code completion, code llm]
+
+safety:
+  keywords: [safety, alignment, rlhf, constitutional, red-teaming, jailbreak]
+
+evaluation:
+  keywords: [evaluation, benchmark, leaderboard, metrics, human evaluation]
