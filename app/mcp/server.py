@@ -41,8 +41,8 @@ async def list_tools() -> list[Tool]:
             },
         ),
         Tool(
-            name="summarize_paper",
-            description="Fetch a paper by arxiv ID, summarize it, and write it to papers/<id>.md. Returns the summary.",
+            name="get_paper_details",
+            description="Fetch metadata + abstract for a single arxiv paper by ID. Does NOT write a file or summarize. Use this to inspect a borderline paper before committing to summarize it.",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -52,15 +52,26 @@ async def list_tools() -> list[Tool]:
             },
         ),
         Tool(
-            name="compare_papers",
-            description="Compute cosine similarity between two papers by their arxiv IDs.",
+            name="summarize_paper",
+            description="Fetch a paper by arxiv ID, summarize it, write it to papers/<id>.md, and embed it. Commits the paper to the kept set. Returns the summary.",
             inputSchema={
                 "type": "object",
                 "properties": {
-                    "id_a": {"type": "string"},
-                    "id_b": {"type": "string"},
+                    "arxiv_id": {"type": "string", "description": "arxiv paper ID (e.g. '2401.12345')"},
                 },
-                "required": ["id_a", "id_b"],
+                "required": ["arxiv_id"],
+            },
+        ),
+        Tool(
+            name="skip_paper",
+            description="Record a rejection for an arxiv paper with a reason. Skipped papers are persisted in papers/.index/rejections.json so future runs do not re-fetch them.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "arxiv_id": {"type": "string"},
+                    "reason": {"type": "string", "description": "Short reason for rejecting this paper"},
+                },
+                "required": ["arxiv_id", "reason"],
             },
         ),
         Tool(
@@ -95,6 +106,20 @@ async def list_tools() -> list[Tool]:
                 },
             },
         ),
+        Tool(
+            name="finish",
+            description="Write the final markdown digest to papers/digest.md and terminate the run. Call this exactly once when research is complete.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "digest_markdown": {
+                        "type": "string",
+                        "description": "The final digest content (markdown). <400 words. Include paper titles, key findings, paths, and (if available) the most relevant papers by similarity.",
+                    },
+                },
+                "required": ["digest_markdown"],
+            },
+        ),
     ]
 
 
@@ -103,14 +128,18 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
     try:
         if name == "search_papers":
             return await _handle_search(arguments)
+        elif name == "get_paper_details":
+            return await _handle_get_details(arguments)
         elif name == "summarize_paper":
             return await _handle_summarize(arguments)
-        elif name == "compare_papers":
-            return await _handle_compare_papers(arguments)
+        elif name == "skip_paper":
+            return await _handle_skip(arguments)
         elif name == "compare_to_interest":
             return await _handle_compare_interest(arguments)
         elif name == "list_papers":
             return await _handle_list(arguments)
+        elif name == "finish":
+            return await _handle_finish(arguments)
         else:
             return [TextContent(type="text", text=f"Unknown tool: {name}")]
     except Exception as e:
@@ -140,6 +169,41 @@ async def _handle_search(args: dict) -> list[TextContent]:
             p["matched_subtopics"] = subtopics_module.match_subtopics(text)
 
     return [TextContent(type="text", text=json.dumps(papers, indent=2))]
+
+
+async def _handle_get_details(args: dict) -> list[TextContent]:
+    arxiv_id = args["arxiv_id"]
+
+    if store_module.is_rejected(arxiv_id):
+        return [TextContent(type="text", text=f"Paper {arxiv_id} was previously skipped.")]
+    if store_module.paper_exists(arxiv_id):
+        paper = store_module.read_paper(arxiv_id)
+        return [TextContent(type="text", text=json.dumps({
+            "arxiv_id": arxiv_id,
+            "title": paper.get("title", ""),
+            "authors": paper.get("authors", []),
+            "published": paper.get("published", ""),
+            "abstract": paper.get("abstract", ""),
+            "url": paper.get("url", ""),
+            "already_summarized": True,
+            "path": paper.get("path"),
+        }, indent=2))]
+
+    paper = await arxiv_client.fetch_paper(arxiv_id)
+    if not paper:
+        return [TextContent(type="text", text=f"Paper {arxiv_id} not found on arxiv")]
+
+    matched = subtopics_module.match_subtopics(f"{paper['title']} {paper['abstract']}")
+    return [TextContent(type="text", text=json.dumps({
+        "arxiv_id": arxiv_id,
+        "title": paper["title"],
+        "authors": paper["authors"],
+        "published": paper["published"],
+        "abstract": paper["abstract"],
+        "url": paper["url"],
+        "matched_subtopics": matched,
+        "already_summarized": False,
+    }, indent=2))]
 
 
 async def _handle_summarize(args: dict) -> list[TextContent]:
@@ -175,33 +239,6 @@ async def _handle_summarize(args: dict) -> list[TextContent]:
         "path": str(path),
         "subtopics": matched,
         "summary": summary,
-    }, indent=2))]
-
-
-async def _handle_compare_papers(args: dict) -> list[TextContent]:
-    id_a = args["id_a"]
-    id_b = args["id_b"]
-
-    paper_a = store_module.read_paper(id_a)
-    paper_b = store_module.read_paper(id_b)
-
-    if not paper_a:
-        return [TextContent(type="text", text=f"Paper {id_a} not found locally")]
-    if not paper_b:
-        return [TextContent(type="text", text=f"Paper {id_b} not found locally")]
-
-    text_a = f"{paper_a['title']} {paper_a['abstract']} {paper_a['summary']}"
-    text_b = f"{paper_b['title']} {paper_b['abstract']} {paper_b['summary']}"
-
-    vec_a = embed_module.get_or_compute_embedding(id_a, text_a)
-    vec_b = embed_module.get_or_compute_embedding(id_b, text_b)
-
-    sim = embed_module.cosine_similarity(vec_a, vec_b)
-
-    return [TextContent(type="text", text=json.dumps({
-        "id_a": id_a,
-        "id_b": id_b,
-        "cosine_similarity": round(sim, 4),
     }, indent=2))]
 
 
@@ -247,6 +284,26 @@ async def _handle_list(args: dict) -> list[TextContent]:
         })
 
     return [TextContent(type="text", text=json.dumps(summaries, indent=2))]
+
+
+async def _handle_skip(args: dict) -> list[TextContent]:
+    arxiv_id = args["arxiv_id"]
+    reason = args["reason"]
+    store_module.write_rejection(arxiv_id, reason)
+    return [TextContent(type="text", text=json.dumps({
+        "arxiv_id": arxiv_id,
+        "skipped": True,
+        "reason": reason,
+    }, indent=2))]
+
+
+async def _handle_finish(args: dict) -> list[TextContent]:
+    digest_markdown = args["digest_markdown"]
+    path = store_module.write_digest(digest_markdown)
+    return [TextContent(type="text", text=json.dumps({
+        "finished": True,
+        "path": str(path),
+    }, indent=2))]
 
 
 async def main():

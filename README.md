@@ -13,7 +13,7 @@ run:
 ```bash
 ollama pull qwen3.5:9b
 docker compose run --rm research-agent \
-  "Find recent multi-agent reasoning papers"
+  "Find recent papers on long horizon planning"
 ```
 
 ## Features

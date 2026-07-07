@@ -5,9 +5,11 @@ from typing import Optional
 
 import frontmatter
 
-from app.config import PAPERS_DIR
+from app.config import INDEX_DIR, PAPERS_DIR
 
 logger = logging.getLogger(__name__)
+
+_REJECTIONS_FILE = INDEX_DIR / "rejections.json"
 
 
 def _paper_path(arxiv_id: str) -> Path:
@@ -88,3 +90,37 @@ def list_papers(subtopics: Optional[list[str]] = None) -> list[dict]:
             continue
 
     return papers
+
+
+def read_rejections() -> dict:
+    if not _REJECTIONS_FILE.exists():
+        return {}
+    try:
+        with open(_REJECTIONS_FILE) as f:
+            return json.load(f)
+    except (json.JSONDecodeError, OSError) as e:
+        logger.warning("Failed to read rejections: %s", e)
+        return {}
+
+
+def is_rejected(arxiv_id: str) -> bool:
+    return arxiv_id in read_rejections()
+
+
+def write_rejection(arxiv_id: str, reason: str) -> None:
+    rejections = read_rejections()
+    rejections[arxiv_id] = reason
+    try:
+        with open(_REJECTIONS_FILE, "w") as f:
+            json.dump(rejections, f, indent=2)
+        logger.info("Recorded rejection for %s: %s", arxiv_id, reason)
+    except OSError as e:
+        logger.error("Failed to write rejections: %s", e)
+
+
+def write_digest(markdown: str) -> Path:
+    path = PAPERS_DIR / "digest.md"
+    with open(path, "w") as f:
+        f.write(markdown)
+    logger.info("Wrote digest to %s", path)
+    return path

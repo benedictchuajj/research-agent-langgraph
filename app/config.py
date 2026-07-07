@@ -17,5 +17,10 @@ ARXIV_MAX_RETRIES = int(os.getenv("ARXIV_MAX_RETRIES", "5"))
 ARXIV_BACKOFF_BASE = float(os.getenv("ARXIV_BACKOFF_BASE", "4.0"))
 ARXIV_BACKOFF_CAP = float(os.getenv("ARXIV_BACKOFF_CAP", "60.0"))
 
+# ReAct agent budgets
+ITER_MAX = int(os.getenv("ITER_MAX", "30"))
+ARXIV_MAX = int(os.getenv("ARXIV_MAX", "4"))
+SUMMARY_MAX = int(os.getenv("SUMMARY_MAX", "8"))
+
 PAPERS_DIR.mkdir(parents=True, exist_ok=True)
 INDEX_DIR.mkdir(parents=True, exist_ok=True)

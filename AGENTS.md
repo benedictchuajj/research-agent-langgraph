@@ -16,46 +16,54 @@ research-agent/
 ├── AGENTS.md
 ├── docker-compose.yml
 ├── Dockerfile
-├── pyproject.toml
+├── pyproject.toml    # rename: pyproject.toml listed in AGENTS.md but requirements.txt is the actual install file
 ├── subtopics.yaml
 ├── app/
 │   ├── __init__.py
-│   ├── agent.py               # LangGraph builder + entrypoint
+│   ├── agent.py               # ReAct loop + MCP toolkit wrapper
 │   ├── config.py
 │   └── mcp/
 │       ├── __init__.py
 │       ├── server.py          # MCP server (stdio), registers tools
 │       ├── arxiv.py           # search + rate limiter + backoff
 │       ├── summarize.py       # Ollama summarization
-│       ├── store.py           # markdown read/write + front-matter
+│       ├── store.py           # markdown read/write + front-matter + rejections + digest
 │       ├── embed.py           # sentence-transformers + caching
 │       └── subtopics.py       # YAML loader + matcher
-├── papers/                    # bind-mounted volume
+├── tests/
+│   └── test_react_smoke.py    # stubbed-LLM smoke test
+├── papers/                    # bind-mounted volume; also holds digest.md and .index/
 └── README.md
 ```
 
 ## LangGraph State Machine
-State: `{query, subtopics, candidates, fetched, summaries, paths, user_interest, similarities, error}`
+State: `{messages, user_query, user_interest, kept_ids, arxiv_calls, summaries_written, iterations}`
 
-Nodes:
-1. `plan` — LLM parses topic string into arxiv query + subtopics
-2. `search` — MCP `search_papers` with rate-limited arxiv calls
-3. `dedupe` — filter already-summarized arxiv IDs
-4. `fetch_summaries` — MCP `summarize_paper` for each new ID → writes markdown
-5. `compare` (optional) — MCP `compare_to_interest` / `compare_papers`
-6. `respond` — LLM synthesizes digest with file paths
+Architecture: **single ReAct loop**. The model is bound to the MCP tool list and
+iteratively selects tools based on observed results; no hand-coded node ordering.
+One MCP stdio subprocess is held open for the whole run (previously the graph
+spawned one per node).
 
-Edges: linear `plan -> search -> dedupe -> fetch_summaries -> [compare] -> respond`.
-Conditional: `fetch_summaries` loops back to `search` (relaxed subtopics) if zero new summaries found and retry budget remains.
+Graph: `START → react → (react | END)` — one node, self-loop, conditional exit
+on budget exhaustion (`ITER_MAX`, `ARXIV_MAX`, `SUMMARY_MAX`) or `finish` tool call.
+
+Policy (encoded in `SYSTEM_PROMPT`): search → skim candidates → for borderline
+papers call `get_paper_details` before committing → summarize the kept set →
+optionally `compare_to_interest` → call `finish` with a <400-word digest saved
+to `papers/digest.md`. Up to 2 query rewrites if the first search is thin.
+
+See `.opencode/plans/react-agent-rearchitecture.md` for the full design.
 
 ## MCP Tools
 | Tool | Inputs | Output |
 |---|---|---|
 | `search_papers` | `query, subtopics, max_results=20` | filtered candidate list |
+| `get_paper_details` | `arxiv_id` | metadata + abstract only (no file) |
 | `summarize_paper` | `arxiv_id` | writes `papers/<id>.md`, returns summary |
-| `compare_papers` | `id_a, id_b` | cosine similarity |
+| `skip_paper` | `arxiv_id, reason` | records rejection to `papers/.index/rejections.json` |
 | `compare_to_interest` | `interest, arxiv_ids, top_k=5` | ranked similarities |
 | `list_papers` | `subtopics=[]` | stored markdown paths + front-matter |
+| `finish` | `digest_markdown` | writes `papers/digest.md`, terminates run |
 
 ## Rate Limiting
 - Min 3s between arxiv HTTP calls (asyncio lock + timestamp gate)
@@ -103,6 +111,12 @@ rag:
 - `Dockerfile`: python:3.12-slim, uv-based install, pre-download embedding model
 - `docker-compose.yml`: mounts `./papers:/app/papers`, uses `network_mode: host` so the container shares the host network and reaches Ollama on `localhost:11434`
 - MCP stdio: agent spawns MCP server as subprocess in same container
+
+## Budgets & Guards
+- `ITER_MAX=30` (env) — max tool rounds per run
+- `ARXIV_MAX=4` (env) — max `search_papers` calls
+- `SUMMARY_MAX=8` (env) — max `summarize_paper` calls
+- Hard caps enforced in `should_continue`; model cannot exceed.
 
 ## Usage
 ```bash
