@@ -7,7 +7,6 @@ from typing import Annotated, Any, Optional
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_ollama import ChatOllama
-from langchain_openai import ChatOpenAI
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.message import add_messages
 from mcp import ClientSession, StdioServerParameters
@@ -15,11 +14,8 @@ from mcp.client.stdio import stdio_client
 from typing_extensions import TypedDict
 
 from app.config import (
-    LLM_PROVIDER,
     OLLAMA_BASE_URL,
     OLLAMA_MODEL,
-    OPENAI_API_KEY,
-    OPENAI_MODEL,
 )
 
 logging.basicConfig(level=logging.INFO, stream=sys.stderr)
@@ -50,16 +46,8 @@ def _get_agent_llm() -> BaseChatModel:
     if _agent_llm is not None:
         return _agent_llm
 
-    if LLM_PROVIDER == "ollama":
-        logger.info("Agent using Ollama: model=%s base_url=%s", OLLAMA_MODEL, OLLAMA_BASE_URL)
-        _agent_llm = ChatOllama(model=OLLAMA_MODEL, base_url=OLLAMA_BASE_URL, temperature=0)
-    elif LLM_PROVIDER == "openai":
-        if not OPENAI_API_KEY:
-            raise ValueError("OPENAI_API_KEY not set (LLM_PROVIDER=openai)")
-        logger.info("Agent using OpenAI: model=%s", OPENAI_MODEL)
-        _agent_llm = ChatOpenAI(model=OPENAI_MODEL, api_key=OPENAI_API_KEY, temperature=0)
-    else:
-        raise ValueError(f"Unknown LLM_PROVIDER: {LLM_PROVIDER}")
+    logger.info("Agent using Ollama: model=%s base_url=%s", OLLAMA_MODEL, OLLAMA_BASE_URL)
+    _agent_llm = ChatOllama(model=OLLAMA_MODEL, base_url=OLLAMA_BASE_URL, temperature=0)
 
     return _agent_llm
 

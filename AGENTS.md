@@ -5,7 +5,7 @@ A LangGraph agent that uses an MCP server (stdio transport, spawned on demand) t
 
 ## Stack
 - **LangGraph** state machine driving an **MCP** server (stdio transport)
-- **LLM**: OpenAI `gpt-4o-mini` via `langchain-openai` (env `OPENAI_API_KEY`)
+- **LLM**: Ollama `qwen3.5:9b` via `langchain-ollama`, host-run (agent runs with `network_mode: host`, so `OLLAMA_BASE_URL=http://localhost:11434` reaches host Ollama)
 - **arxiv**: official `arxiv` PyPI client wrapped with a rate limiter
 - **Embeddings**: `sentence-transformers` `all-MiniLM-L6-v2` (local, no API key)
 - **Storage**: markdown files in bind-mounted `./papers` volume; sidecar `papers/.index/embeddings.npz` for vectors (no DB)
@@ -26,7 +26,7 @@ research-agent/
 │       ├── __init__.py
 │       ├── server.py          # MCP server (stdio), registers tools
 │       ├── arxiv.py           # search + rate limiter + backoff
-│       ├── summarize.py       # OpenAI summarization
+│       ├── summarize.py       # Ollama summarization
 │       ├── store.py           # markdown read/write + front-matter
 │       ├── embed.py           # sentence-transformers + caching
 │       └── subtopics.py       # YAML loader + matcher
@@ -101,12 +101,12 @@ rag:
 
 ## Containerization
 - `Dockerfile`: python:3.12-slim, uv-based install, pre-download embedding model
-- `docker-compose.yml`: mounts `./papers:/app/papers`, passes `OPENAI_API_KEY`
+- `docker-compose.yml`: mounts `./papers:/app/papers`, uses `network_mode: host` so the container shares the host network and reaches Ollama on `localhost:11434`
 - MCP stdio: agent spawns MCP server as subprocess in same container
 
 ## Usage
 ```bash
-export OPENAI_API_KEY=...
+ollama pull qwen3.5:9b
 docker compose run --rm research-agent \
   "Find recent multi-agent reasoning papers and compare them to my interest: efficient inference"
 ```

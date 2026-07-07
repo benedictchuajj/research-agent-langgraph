@@ -4,17 +4,14 @@ A LangGraph agent that uses an MCP server (stdio transport) to search arxiv, fil
 
 ## Quick Start (Docker)
 
-```bash
-export OPENAI_API_KEY=your-key-here
-docker compose run --rm research-agent \
-  "Find recent multi-agent reasoning papers and compare them to my interest: efficient inference"
-```
-
-### Using Ollama (Docker)
+The agent runs in Docker; Ollama runs on your host. The compose service
+uses `network_mode: host`, so the container shares the host's network
+namespace and reaches Ollama on `localhost:11434` directly — no
+`OLLAMA_HOST=0.0.0.0` bind needed on the host. Pull a model first, then
+run:
 
 ```bash
-export LLM_PROVIDER=ollama
-export OLLAMA_MODEL=llama3.2
+ollama pull qwen3.5:9b
 docker compose run --rm research-agent \
   "Find recent multi-agent reasoning papers"
 ```
@@ -26,7 +23,7 @@ docker compose run --rm research-agent \
 - **Markdown summaries** stored in `./papers/` (bind-mounted volume, no database)
 - **Similarity comparison** using local sentence-transformers embeddings
 - **Containerized** with pre-downloaded embedding model
-- **LLM provider choice**: OpenAI or Ollama (local)
+- **LLM via Ollama** (local, host-run — no API keys)
 
 ## Architecture
 
@@ -47,11 +44,10 @@ docker compose run --rm research-agent \
 ## Configuration
 
 Environment variables:
-- `LLM_PROVIDER` — `openai` (default) or `ollama`
-- `OPENAI_API_KEY` — required when `LLM_PROVIDER=openai`
-- `OPENAI_MODEL` — default: `gpt-4o-mini`
-- `OLLAMA_MODEL` — default: `llama3.2`
-- `OLLAMA_BASE_URL` — default: `http://localhost:11434`
+- `OLLAMA_MODEL` — default: `qwen3.5:9b` (`.env` overrides)
+- `OLLAMA_BASE_URL` — default: `http://localhost:11434`. Works for both
+  Docker (host-networked container) and local runs, since `localhost`
+  inside the container is the host's loopback where Ollama listens.
 - `EMBEDDING_MODEL` — default: `all-MiniLM-L6-v2`
 - `ARXIV_MIN_INTERVAL` — default: `3.0` seconds
 
@@ -73,15 +69,9 @@ conda create -n research-agent python=3.12 -y
 conda activate research-agent
 pip install -r requirements.txt
 
-export OPENAI_API_KEY=your-key-here
+ollama pull qwen3.5:9b   # Ollama must be running on the host
 python -m app.agent "Find papers on multi-agent reasoning"
 ```
 
-### Using Ollama locally
-
-```bash
-conda activate research-agent
-export LLM_PROVIDER=ollama
-export OLLAMA_MODEL=llama3.2
-python -m app.agent "Find papers on multi-agent reasoning"
-```
+`OLLAMA_BASE_URL` defaults to `http://localhost:11434`, which works the
+same way under Docker (host-networked) and for local runs.
